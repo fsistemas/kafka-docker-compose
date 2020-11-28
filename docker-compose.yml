@@ -1,0 +1,155 @@
+version: "3.6"
+
+services: 
+    zookeeper:
+        container_name: zookeeper
+        image: zookeeper:3.6.1
+        hostname: zookeeper
+        ports: 
+            - 2181:2181
+
+    kafka:
+        container_name: kafka
+        image: confluentinc/cp-kafka:5.1.1
+        hostname: kafka
+        ports: 
+            - 9092:9092
+            - 29092:29092
+        environment: 
+            KAFKA_BROKER_ID: 1
+            KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+            KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+            KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+            KAFKA_SECURITY_INTERBROKER_PROTOCOL: PLAIN
+            KAFKA_SASL_ENABLED_MECHANISM: PLAIN
+            KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SASL_PLAINTEXT
+            KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.auth.SimpleAclAuthorizer
+            KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: 'true'
+            KAFKA_SUPER_USERS: User:admin
+            KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+        depends_on: 
+            - zookeeper
+
+    topics-management:
+        image: devshawn/kafka-gitops:0.2.13
+        hostname: topics-management
+        container_name: topics-management
+        depends_on: 
+            - kafka
+        command: 
+            - /bin/bash
+            - -c
+            - |
+              echo "kafka-gitops version: "
+              /usr/local/bin/kafka-gitops --version
+              ls -lah /state
+              echo "Waiting 30 seconds for kafka to be ready"
+              sleep 30
+              /usr/local/bin/kafka-gitops -f /state/state.yaml validate
+              /usr/local/bin/kafka-gitops -f /state/state.yaml plan
+              /usr/local/bin/kafka-gitops -f /state/state.yaml apply
+        environment: 
+            - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+        volumes: 
+            - ./environments/docker-compose:/state
+
+    kafka-rest-proxy:
+        image: confluentinc/cp-kafka-rest:5.1.1
+        hostname: kafka-rest-proxy
+        container_name: kafka-rest-proxy
+        depends_on: 
+            - kafka
+        ports: 
+            - 8082:8082
+        environment: 
+            KAFKA_REST_HOST_NAME: kafka-rest-proxy
+            KAFKA_REST_BOOTSTRAP_SERVERS: 'kafka:9092'
+            #KAFKA_REST_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_REST_LISTENERS: "http://0.0.0.0:8082"
+
+    kafka-topics-ui:
+        image: landoop/kafka-topics-ui@sha256:415be8fe64e37d8e33d33626d57b5e3fd3ffedf88592247fe34d866e40d37ce5
+        hostname: kafka-topics-ui
+        container_name: kafka-topics-ui
+        depends_on: 
+            - kafka
+            - kafka-rest-proxy
+        ports: 
+            - 8000:8000
+        environment: 
+            KAFKA_REST_PROXY_URL: "http://kafka-rest-proxy:8082"
+            PROXY: "true"
+
+    kafka-producer:
+        build: producer/
+        container_name: kafka-producer
+        hostname: kafka-producer
+        depends_on: 
+            - kafka
+            - topics-management
+        environment: 
+            KAFKA_BOOTSTRAP_SERVERS: 'kafka:9092'
+            PYTHONUNBUFFERED: 1
+            PYTHONIOENCODING: UTF-8
+        command: 
+            - /bin/bash
+            - -c
+            - |
+              echo "Wait 40 seconds for kafka topics"
+              sleep 40
+              python3 /app/app.py
+
+    kafka-consumer:
+        build: consumer/
+        container_name: kafka-consumer
+        hostname: kafka-consumer
+        depends_on: 
+            - kafka
+            - topics-management
+            - kafka-producer
+        environment: 
+            KAFKA_BOOTSTRAP_SERVERS: 'kafka:9092'
+            PYTHONUNBUFFERED: 1
+            PYTHONIOENCODING: UTF-8
+        command: 
+            - /bin/bash
+            - -c
+            - |
+              echo "Wait 40 seconds for kafka topics"
+              sleep 40
+              python3 /app/app.py
+
+    # kafka-produce-consume:
+    #     container_name: kafka-produce-consume
+    #     image: confluentinc/cp-kafka:5.1.1
+    #     hostname: kafka-produce-consume
+    #     environment: 
+    #         BOOTSTRAP_SERVERS: 'kafka:9092'
+    #     depends_on: 
+    #         - kafka
+    #         - topics-management
+    #     command: 
+    #         - /bin/bash
+    #         - -c
+    #         - |
+    #           echo "Waiting 30 seconds for Kafka"
+    #           cub kafka-ready -b kafka:9092 1 90
+    #           /usr/bin/kafka-topics --create --if-not-exists --zookeeper zookeeper:2181 --topic customer --partitions 1 --rep- lication-factor 1
+    #         - echo "Waiting 30 seconds before publish messages"
+    #         - sleep 30
+    #         - echo "Publish messages"
+    #         - /usr/bin/kafka-console-producer --broker-list kafka:9092 --topic topic1
+    #         - -c
+    #         - |
+    #           1
+    #           2
+    #           3
+    #           4
+    #           5
+    #         #- /usr/bin/kafka-console-consumer --bootstrap-server kafka:9092 --from-beginning --topic topic1
+    #         - sleep 90
+    #         - echo "DONE"
+
+
+

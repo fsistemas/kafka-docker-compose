@@ -1,0 +1,18 @@
+settings:
+    ccloud: 
+        enabled: false
+    topics:
+        defaults:
+            replication: 1
+        blacklist:
+            prefixed:
+                - _confluent
+                - __confluent
+                - config.debezium
+
+topics:
+    topic1:
+        partitions: 1
+        replication: 1
+        configs:
+            cleanup.policy: delete
