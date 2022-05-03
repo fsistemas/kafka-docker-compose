@@ -1,4 +1,4 @@
-# Repo to create Kafka cluster - single node
+# Repo to create Kafka cluster - single node basic producer and consumer
 
 ## What is inside
 - Zookeeper
